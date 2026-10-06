@@ -5,22 +5,53 @@ from unittest.mock import Mock, patch
 
 from notion_sync import NotionSync, deadline_date, employment_type
 from saramin_crawler import SaraminCrawler
+from job_report import eligible, save_excel
+from openpyxl import load_workbook
 
 
 class CrawlerTests(unittest.TestCase):
     def test_searches_requested_roles_and_saves_without_email(self):
         crawler = SaraminCrawler()
-        job = {'title': '교육운영 신입', 'company': '테스트', 'link': 'https://example.com/1'}
+        job = {'title': '교육운영 신입', 'company': '테스트', 'link': 'https://example.com/1', 'location': '서울 강남구', 'career': '신입'}
         crawler.search_jobs = Mock(return_value=[job])
         crawler.save_to_csv = Mock(return_value='test.csv')
         crawler.send_email_notification = Mock()
-        with patch('saramin_crawler.NotionSync.from_environment', return_value=None):
+        with patch('saramin_crawler.NotionSync.from_environment', return_value=None), patch('saramin_crawler.save_excel'):
             jobs = crawler.run_advanced_crawler({'sender_email': None})
         keywords = {call.kwargs['keyword'] for call in crawler.search_jobs.call_args_list}
         self.assertTrue({'교육운영', '인사', '경영지원', '일반행정'} <= keywords)
         self.assertEqual(len(jobs), 1)
         crawler.save_to_csv.assert_called_once_with(jobs)
         crawler.send_email_notification.assert_not_called()
+
+    def test_region_and_entry_filters(self):
+        for location, career, title, expected in [
+            ('서울 강남구', '신입', '인사', True),
+            ('경기 화성시', '경력무관', '경영지원', True),
+            ('서울 중구', '신입·경력', '행정', True),
+            ('서울 중구', '경력3년↑', '인사', False),
+            ('부산', '신입', '인사', False),
+            ('서울', '경력 없음', '체험형 인턴', True),
+            ('서울', '경력2년↑', '인턴', False),
+            ('경기 수원시', '경력 없음', '행정', False),
+        ]:
+            with self.subTest(location=location, career=career, title=title):
+                self.assertEqual(eligible({'location': location, 'career': career,
+                                           'title': title}), expected)
+
+    def test_workbook_filters_hyperlinks_and_formula_safety(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'jobs.xlsx')
+            save_excel([{'title': '=1+1', 'company': '기업', 'keyword': '인사',
+                         'location': '서울', 'career': '신입',
+                         'link': 'https://example.com/job'}], path)
+            wb = load_workbook(path)
+            ws = wb['공고 목록']
+            self.assertEqual(ws['D2'].data_type, 's')
+            self.assertEqual(ws['J2'].hyperlink.target, 'https://example.com/job')
+            self.assertEqual(ws.auto_filter.ref, 'A1:K2')
+            self.assertIn('JobPostings', ws.tables)
+            wb.close()
 
     def test_csv_contains_collected_fields(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from urllib.parse import urljoin
 from notion_sync import NotionSync
+from job_report import filter_jobs, save_excel
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -427,13 +428,17 @@ class SaraminCrawler:
                 unique_jobs.append(job)
                 seen_links.add(job['link'])
 
-        print(f"\n🎉 총 {len(unique_jobs)}개 고유 공고 수집!")
+        raw_count = len(unique_jobs)
+        unique_jobs = filter_jobs(unique_jobs)
+        print(f'\n🎯 수집 {raw_count}개 중 서울·경기 신입/경력무관/인턴 {len(unique_jobs)}개')
+        save_excel(unique_jobs)
 
         # CSV 저장
         filename = self.save_to_csv(unique_jobs)
 
         # 노션 설정이 없으면 CSV 저장만 진행합니다.
-        notion = NotionSync.from_environment()
+        notion = (NotionSync.from_environment()
+                  if os.environ.get('ENABLE_NOTION_SYNC') == '1' else None)
         if notion and unique_jobs:
             try:
                 notion.sync(unique_jobs)
@@ -461,7 +466,7 @@ if __name__ == "__main__":
     # print(f"검색 결과: {len(jobs)}개")
 
 
-    # 검색 → CSV 저장 → 노션 등록 → 이메일 알림(선택)
+    # 검색 → 지역/경력 필터 → 엑셀 저장 (노션은 기본 비활성화)
     print("\n" + "="*60)
     print("🎯 완전 자동화 크롤링")
     print("="*60)
@@ -482,4 +487,4 @@ if __name__ == "__main__":
     print(f"   - 총 공고 수: {len(all_jobs)}")
     if all_jobs:
         print(f"   - 첫 번째 공고: {all_jobs[0]['title']}")
-        print(f"   - CSV 파일로 저장됨")
+        print('   - 엑셀과 CSV로 저장됨')
