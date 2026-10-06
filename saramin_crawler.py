@@ -4,6 +4,8 @@ import pandas as pd
 import time
 import os
 from datetime import datetime
+from urllib.parse import urljoin
+from notion_sync import NotionSync
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -70,7 +72,7 @@ class SaraminCrawler:
         self._apply_filters(params, filters)
 
         try:
-            response = requests.get(api_url, params=params, headers=self.headers)
+            response = requests.get(api_url, params=params, headers=self.headers, timeout=20)
             response.raise_for_status()
 
             # JSON 응답 파싱 : 응답은 json 형태이기때문 '{"count":"283","innerHTML":"<div>...</div>"}'
@@ -91,7 +93,7 @@ class SaraminCrawler:
 
                 try: 
                     # 각 페이지마다 새로 API 호출
-                    response = requests.get(api_url, params=params, headers=self.headers)
+                    response = requests.get(api_url, params=params, headers=self.headers, timeout=20)
                     response.raise_for_status()
                     json_data = response.json()  # 해당 페이지 데이터
 
@@ -180,7 +182,9 @@ class SaraminCrawler:
 
             # 링크 처리 (상대경로 → 절대경로 변환)
             href = title_elem.get('href') if title_elem else ""
-            link = f"https://www.saramin.co.kr{href}" if href else ""
+            link = urljoin("https://www.saramin.co.kr", href) if href else ""
+            if not title or not link:
+                return None
             
             # 회사명
             company_elem = item.select_one('div.area_corp > strong.corp_name > a')
@@ -394,38 +398,22 @@ class SaraminCrawler:
 
         # 다양한 검색 조건들
         search_configs = [
-            {
-                'name': '병원 데이터 고연봉 정규직',
-                'keyword': '병원 데이터',
-                'salary_min': '3000만원~',
-                'company_types': ['대기업', '중견기업'],
-                'job_types': ['정규직'],
-            },
-            {
-                'name': '스타트업 PM 재택근무',
-                'keyword': 'PM',
-                'company_types': ['스타트업'],
-                'job_types': ['정규직', '계약직'],
-                'remote_work': True,
-                'work_day': ['유연근무제']
-            },
-            {
-                'name': '헬스케어 기획직',
-                'keyword': '헬스케어',
-                'job_types': ['정규직'],
-                'exclude_keywords': ['학교'],
-            }
+            {'name': keyword, 'keyword': keyword}
+            for keyword in (
+                '교육운영', '연수운영', '교육지원', '인사', 'HR', '채용운영',
+                '경영지원', '총무', '일반행정', '행정지원', '사무행정'
+            )
         ]
 
         all_jobs = []
 
         for config in search_configs:
             print(f"\n📋 {config['name']} 검색 중...")
-            keyword = config.pop('name')
-
-            keyword = config.pop('keyword', '데이터')  # keyword 추출
+            keyword = config['keyword']
+            filters = {key: value for key, value in config.items()
+                       if key not in ('name', 'keyword')}
             
-            jobs = self.search_jobs(keyword=keyword, **config)
+            jobs = self.search_jobs(keyword=keyword, **filters)
             all_jobs.extend(jobs)
             print(f"✅ {len(jobs)}개 공고 수집")
 
@@ -442,10 +430,18 @@ class SaraminCrawler:
         print(f"\n🎉 총 {len(unique_jobs)}개 고유 공고 수집!")
 
         # CSV 저장
-        # filename = self.save_to_csv(unique_jobs)
+        filename = self.save_to_csv(unique_jobs)
+
+        # 노션 설정이 없으면 CSV 저장만 진행합니다.
+        notion = NotionSync.from_environment()
+        if notion and unique_jobs:
+            try:
+                notion.sync(unique_jobs)
+            except (requests.RequestException, ValueError) as exc:
+                print(f"❌ 노션 등록 실패 (CSV는 저장됨): {exc}")
         
         # 이메일 알림
-        if email_config and unique_jobs:
+        if email_config and all(email_config.values()) and unique_jobs:
             self.send_email_notification(unique_jobs, email_config)
         
         return unique_jobs
@@ -453,7 +449,7 @@ class SaraminCrawler:
 if __name__ == "__main__":
     crawler = SaraminCrawler()
 
-    # # 예시 1: 이곳에 내가 검색하고 싶은 채용 공고 조건 넣기!! (한번에 3가지까지만 가능)
+    # # 예시 1: 이곳에 내가 검색하고 싶은 채용 공고 조건 넣기!! (검색 조건 설정 가능)
     # jobs = crawler.search_jobs(
     #     keyword="병원 데이터",
     #     salary_min="3000만원~",           # 3000만원 이상
@@ -465,7 +461,7 @@ if __name__ == "__main__":
     # print(f"검색 결과: {len(jobs)}개")
 
 
-    # 예시 2: 완전 자동화 크롤링
+    # 검색 → CSV 저장 → 노션 등록 → 이메일 알림(선택)
     print("\n" + "="*60)
     print("🎯 완전 자동화 크롤링")
     print("="*60)
@@ -479,7 +475,6 @@ if __name__ == "__main__":
     }
 
     # 자동화 실행
-    # all_jobs = crawler.run_advanced_crawler()
     all_jobs = crawler.run_advanced_crawler(email_config)  # 이메일 알림과 함께
 
 

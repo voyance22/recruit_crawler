@@ -21,7 +21,7 @@
 
 ### 1. 저장소 클론
 ```bash
-git clone https://github.com/yujeong0411/recruit_crawler.git
+git clone https://github.com/voyance22/recruit_crawler.git
 cd recruit_crawler
 ```
 <br/>
@@ -55,7 +55,7 @@ pandas
 ```bash
 python saramin_crawler.py
 ```
-기본적으로 run_advanced_crawler() 가 실행되며, 여러 조건으로 자동 크롤링 진행 후 CSV 저장/이메일 발송을 합니다.
+교육운영·연수운영·교육지원·인사·HR·채용운영·경영지원·총무·일반행정·행정지원·사무행정을 검색합니다. CSV 저장 후 노션 설정이 있으면 신규 공고를 등록합니다. 이메일은 설정이 모두 있을 때만 발송합니다.
 <br/>
 
 ### 2. 원하는 조건으로 직접 검색
@@ -172,3 +172,40 @@ jobs:
 
 ## 📌 라이선스
 이 프로젝트는 [MIT License](./LICENSE)를 따릅니다.
+
+
+## 노션 자동 등록 설정
+
+ChatGPT의 노션 연결과 Python 프로그램의 인증은 별개입니다.
+
+1. https://www.notion.so/profile/integrations 에서 내부 통합을 만들고 읽기·삽입 권한을 설정합니다.
+2. 등록할 `지원 기록` 데이터베이스에서 해당 통합을 연결해 접근 권한을 부여합니다.
+3. `.env.example`을 `.env`로 복사해 `NOTION_TOKEN`을 입력합니다. 토큰은 채팅이나 Git에 올리지 마세요.
+4. `NOTION_DATA_SOURCE_ID`를 확인합니다. 등록할 표의 데이터 소스 ID를 입력하세요. 비슷한 이름의 복사본과 구분하세요.
+5. Linux/Mac에서 다음 명령으로 실행합니다.
+
+```bash
+source venv/bin/activate
+set -a
+source .env
+set +a
+python saramin_crawler.py
+```
+
+Windows PowerShell은 `.env`를 자동으로 읽지 않습니다. 환경변수로 직접 설정하세요.
+
+```powershell
+$env:NOTION_TOKEN="내부 통합 토큰"
+$env:NOTION_DATA_SOURCE_ID="데이터 소스 ID"
+.\venv\Scripts\python.exe saramin_crawler.py
+```
+
+GitHub Actions에서 실행하려면 저장소 Secrets에 `NOTION_TOKEN`, `NOTION_DATA_SOURCE_ID`를 추가하세요. 로컬 `.env`는 Actions에 전달되지 않습니다. 현재 변경 사항을 저장소에 반영해야 Actions에서도 적용됩니다.
+
+노션에 필수 속성 `기업명`(제목), `지원 링크`(URL)가 있어야 합니다. 기존 `지원 기록`의 근무지·지원 직무·채용 형태·발견일·주의점·공고 상태·전형 마감 일시 속성도 형식이 맞으면 채웁니다. 기존 공고는 링크(사람인 공고 ID)로 식별해 건너뛰므로 사용자가 작성한 지원 상태나 메모를 덮어쓰지 않습니다.
+
+직무는 검색어에 따른 임시 분류이며 적합성 평가는 아닙니다. 인턴은 전환 여부가 명시되지 않으면 `인턴(전환 여부 미확인)`으로 등록합니다. 연도 없는 마감일은 추정하지 않고 본문에 원문을 보관합니다. 우선순위와 상세 지원 자격은 원문을 확인해야 합니다. 노션 실패 시에도 CSV는 먼저 저장됩니다. Google Calendar 등록 기능은 포함하지 않습니다.
+
+주석 처리란 Python 줄 앞의 `#`로 실행을 막는 것입니다. CSV 저장 호출은 `filename = self.save_to_csv(unique_jobs)`로 활성화했습니다. 설명용 주석은 그대로 둡니다.
+
+실제 사람인 수집은 네트워크와 사이트 응답에 따라 달라집니다. 요청 제한시간은 20초이며 페이지 사이에 1초 대기합니다. 패키지 설치만으로 실제 사이트 연동 성공을 보장하지 않습니다.
